@@ -1,10 +1,11 @@
 import os
 import glob
+import torch
 import warnings
+import argparse
 import numpy as np
 from tqdm import tqdm
 from natsort import natsorted
-
 from datetime import datetime
 to_date   = lambda string: datetime.strptime(string, '%Y-%m-%d')
 S1_LAUNCH = to_date('2014-04-03')
@@ -698,3 +699,21 @@ class SEN12MSCR(Dataset):
     def __len__(self):
         # length of generated list
         return self.n_samples
+    
+
+if __name__ == "__main__":
+    ##===================================================##
+    ##===================================================##
+    dataset = SEN12MSCR(root='../../Data/CR-sentinel/SEN12MSCR', cloud_masks=None)
+    dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=1,shuffle=True)
+
+    ##===================================================##
+    _iter = 0
+    for results in dataloader:
+        cloudy_data = results['input']['S2']
+        cloudfree_data = results['target']['S2']
+        sar_data = results['input']['S1']
+        print('cloudy_data:', cloudy_data.shape)
+        print('cloudfree_data', cloudfree_data.shape)
+        print('sar_data', sar_data.shape)
+        _iter += 1
