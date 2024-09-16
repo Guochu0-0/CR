@@ -5,7 +5,7 @@ from torch.optim import lr_scheduler
 import random
 
 class ModelBase():
-    def save_network(self, network, optimizer, epoch, lr_scheduler, save_dir):
+    def save_network(self, network, epoch, save_dir):
         checkpoint = {
             "network": network.state_dict()
             }

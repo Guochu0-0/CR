@@ -45,19 +45,17 @@ class TransCNN(nn.Module):
         self.config = config
         self.patch_to_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = 4, p2 = 4),
-            nn.Linear(4*4*3, dim)
+            nn.Linear(4*4*15, dim)
         )
         self.transformer_enc = transformer.TransformerEncoders(dim, nhead=2, num_encoder_layers=9, dim_feedforward=dim*2, activation='gelu')
-        self.cnn_dec = CNNDecoder(256, 3, 'ln', 'lrelu', 'reflect')
+        self.cnn_dec = CNNDecoder(256, 13, 'ln', 'lrelu', 'reflect')
         
-        b = self.config.BATCH_SIZE
-        if self.config.MODE == 2:
-            b = 1
-        input_pos = PatchPositionEmbeddingSine(ksize=4, stride=4)
-        self.input_pos = input_pos.unsqueeze(0).repeat(b, 1, 1, 1).to(self.config.DEVICE)
-        self.input_pos = self.input_pos.flatten(2).permute(2, 0, 1)
+        self.input_pos = PatchPositionEmbeddingSine(ksize=4, stride=4)
 
     def forward(self, inputs):
+        self.input_pos = self.input_pos.unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1).cuda()
+        self.input_pos = self.input_pos.flatten(2).permute(2, 0, 1)
+
         patch_embedding = self.patch_to_embedding(inputs)
         content = self.transformer_enc(patch_embedding.permute(1, 0, 2), src_pos=self.input_pos)
         bs, L, C  = patch_embedding.size()

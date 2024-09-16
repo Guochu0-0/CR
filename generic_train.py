@@ -1,75 +1,83 @@
-import os
-import time
 import torch
+import os
 import numpy as np
-import tqdm
-from data.dataPrepare import prepare_data
+from tqdm import tqdm
+from metrics import PSNR
+from tensorboardX import SummaryWriter
 
 class Generic_Train():
-	def __init__(self, model, opts, train_dataloader, val_dataloader):
+	def __init__(self, model, config, train_dataloader, val_dataloader):
 		self.model=model
-		self.opts=opts
+		self.config=config
 		self.train_dataloader=train_dataloader
 		self.val_dataloader=val_dataloader
 
+		self.writer = SummaryWriter(os.path.join('runs', config.EXP_NAME))
+
 	def train(self):
+		
 		total_steps = 0
 		log_loss = 0
 		best_score = 0
 
-		for epoch in range(self.opts.epochs):
+		for epoch in range(self.config.EPOCH):
+
+			train_psnr = 0
+
 			for i, batch in enumerate(tqdm(self.train_dataloader)):
 				total_steps+=1
 
-				device = torch.device(self.opts.device)
-				if self.opts.sample_type == 'cloudy_cloudfree':
-					x, y, in_m, dates = prepare_data(batch, device, self.opts)
-				elif self.opts.sample_type == 'pretrain':
-					x, y, in_m = prepare_data(batch, device, self.opts)
-					dates = None
-				else:
-					raise NotImplementedError
-				input = {'A': x, 'B': y, 'dates': dates, 'masks': in_m}
-				
-				self.model.set_input(input)
+				self.model.set_input(batch)
 				batch_loss = self.model.optimize_parameters()
 				log_loss = log_loss + batch_loss
 
-				if total_steps % self.opts.log_iter == 0:
-					avg_log_loss = log_loss/self.opts.log_iter
-					print('epoch', epoch, 'steps', total_steps, 'loss', avg_log_loss)
+				train_psnr += PSNR(self.model.pred_cloudfree_data, self.model.cloudfree_data) 
+
+				if total_steps % self.config.LOG_ITER == 0:
+
+					avg_log_loss = log_loss/self.config.LOG_ITER
+
+					self.writer.add_scalar('batch_loss', avg_log_loss, total_steps)
+
 					log_loss = 0
 
-			if (epoch+1) % self.opts.val_freq == 0:
+			self.writer.add_scalar('train_psnr', train_psnr/len(self.train_dataloader), epoch)
+
+			if (epoch+1) % self.config.VAL_FREQ == 0:
+
 				print("validation...")
-				self.model.net_G.eval()
-				with torch.no_grad():
-					_iter = 0
-					score = 0
-					for data in self.val_dataloader:
-						device = torch.device(self.opts.device)
-						if self.opts.sample_type == 'cloudy_cloudfree':
-							x, y, in_m, dates = prepare_data(data, device, self.opts)
-						elif self.opts.sample_type == 'pretrain':
-							x, y, in_m = prepare_data(data, device, self.opts)
-							dates = None
-						else:
-							raise NotImplementedError
-						input = {'A': x, 'B': y, 'dates': dates, 'masks': in_m}
-						self.model.set_input(input)
-						score += self.model.val_scores()['PSNR']
-						_iter += 1
-					score = score/_iter
-				print(f'PSNR: {score}')
+				score = self.val(epoch)
+				self.writer.add_scalar('val_psnr', score, epoch)
+
 				if score > best_score:  # save best model
 					best_score = score
 					self.model.save_checkpoint('best')
-				self.model.net_G.train()
 			
-			self.model.scheduler_G.step()
+			#self.model.scheduler_G.step()
 			
-			if epoch % self.opts.save_freq == 0:
+			if epoch % self.config.SAVE_FREQ == 0:
 				self.model.save_checkpoint(epoch)
 
 
+	def val(self, epoch):
+		self.model.net_G.eval()
+
+		with torch.no_grad():
+
+			_iter = 0
+			score = 0
+
+			for data in self.val_dataloader:
+				self.model.set_input(data)
+				score += self.model.val_scores()['PSNR']
+				_iter += 1
+
+				if _iter%10 == 0:
+					self.model.val_img_save(epoch)
+
+			score = score/_iter
+		
+		self.model.net_G.train()
+
+		return score
 

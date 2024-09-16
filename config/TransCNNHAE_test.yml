@@ -1,0 +1,33 @@
+EXP_NAME: transcnn-cr-test
+GPU: [0, 1]
+NUM_WORKERS: 8
+SUB_NUM: 100
+
+TRAIN_ROOT: ../../../Data/CR-sentinel/SEN12MSCR
+VAL_ROOT: ../../../Data/CR-sentinel/SEN12MSCR
+TEST_ROOT: ../../../Data/CR-sentinel/SEN12MSCR
+
+BATCH_SIZE: 16                 # batch size
+EPOCH: 30                     # epoch nums for training
+G_LR: 0.0001
+D_LR: 0.0002
+BETA1: 0.0                    # adam optimizer beta1
+BETA2: 0.9                    # adam optimizer beta2
+
+G1_ADV_LOSS_WEIGHT: 0.1
+G1_CONTENT_LOSS_WEIGHT: 1
+G1_COLOR_LOSS_WEIGHT: 10
+G1_MUTUAL_LOSS_WEIGHT: 5
+
+G2_ADV_LOSS_WEIGHT: 0.1
+G2_L1_LOSS_WEIGHT: 2
+G2_STYLE_LOSS_WEIGHT: 250
+G2_COLOR_LOSS_WEIGHT: 10
+G2_MRF_LOSS_WEIGHT: 0.05
+G2_MUTUAL_LOSS_WEIGHT: 5
+
+
+LOG_ITER: 1                   # freq to log batch_loss ;batch
+SAVE_FREQ: 1                  # freq to save model ;epoch
+VAL_FREQ: 1
+SAVE_MODEL_DIR: checkpoints

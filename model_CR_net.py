@@ -4,9 +4,6 @@ import torch.nn as nn
 import torch.nn.init as init
 
 from model_base import ModelBase
-
-import backbones.uncrtaints as uncrtaints
-
 from metrics import PSNR, SSIM, SAM, MAE
 
 from torch.optim import lr_scheduler
@@ -90,35 +87,11 @@ def weight_init(m, spread=1.0):
                 init.normal_(param.data, mean=0, std=spread)
 
 class ModelCRNet(ModelBase):
-    def __init__(self, opts):
+    def __init__(self, config):
         super(ModelCRNet, self).__init__()
-        self.opts = opts
-        self.scale_by  = opts.scale_by
+        self.config = config
         
         # create network
-        self.net_G = uncrtaints.UNCRTAINTS(
-        input_dim=S1_BANDS*opts.use_sar+S2_BANDS,
-        encoder_widths=opts.encoder_widths,
-        decoder_widths=opts.decoder_widths, 
-        out_conv=opts.out_conv,
-        out_nonlin_mean=opts.mean_nonLinearity,
-        out_nonlin_var=opts.var_nonLinearity,
-        agg_mode=opts.agg_mode,
-        encoder_norm=opts.encoder_norm,
-        decoder_norm=opts.decoder_norm,
-        n_head=opts.n_head,
-        d_model=opts.d_model,
-        d_k=opts.d_k,
-        pad_value=opts.pad_value,
-        padding_mode=opts.padding_mode,
-        positional_encoding=opts.positional_encoding,
-        covmode=opts.covmode,
-        scale_by=opts.scale_by,
-        separate_out=opts.separate_out,
-        use_v=opts.use_v,
-        block_type=opts.block_type,
-        is_mono=opts.pretrain
-    )
         self.print_networks(self.net_G)
 
         # do random weight initialization
@@ -127,18 +100,18 @@ class ModelCRNet(ModelBase):
         
         # initialize optimizers
         paramsG = [{'params': self.netG.parameters()}]
-        self.optimizer_G = torch.optim.Adam(paramsG, lr=opts.lr)
+        self.optimizer_G = torch.optim.Adam(paramsG, lr=config.LR)
 
         #scheduler: for G, note: stepping takes place at the end of epoch
-        self.scheduler_G = torch.optim.lr_scheduler.ExponentialLR(self.optimizer_G, gamma=self.opts.gamma)
+        self.scheduler_G = torch.optim.lr_scheduler.ExponentialLR(self.optimizer_G, gamma=self.config.gamma)
         
-        self.loss_fn = losses.get_loss(self.opts)
+        self.loss_fn = losses.get_loss(self.config)
                         
     def set_input(self, input):
-        self.cloudy_data = self.scale_by * input['A'].to(self.opts.device)
-        self.cloudfree_data = self.scale_by * input['B'].to(self.opts.device)
-        self.dates  = None if input['dates'] is None else input['dates'].to(self.opts.device)
-        self.masks  = input['masks'].to(self.opts.device)
+        self.cloudy_data = self.scale_by * input['A'].cuda()
+        self.cloudfree_data = self.scale_by * input['B'].cuda()
+        self.dates  = None if input['dates'] is None else input['dates'].cuda()
+        self.masks  = input['masks'].cuda()
         
     def forward(self):
         pred_cloudfree_data = self.net_G(self.cloudy_data, batch_positions=self.dates)
@@ -148,9 +121,9 @@ class ModelCRNet(ModelBase):
         self.pred_cloudfree_data = self.forward()
 
         if hasattr(self.net_G, 'vars_idx'):
-            self.loss_G, self.netG.variance = losses.calc_loss(self.criterion, self.opts, self.fake_B[:, :, :self.netG.mean_idx, ...], self.real_B, var=self.fake_B[:, :, self.netG.mean_idx:self.netG.vars_idx, ...])
+            self.loss_G, self.netG.variance = losses.calc_loss(self.criterion, self.config, self.fake_B[:, :, :self.netG.mean_idx, ...], self.real_B, var=self.fake_B[:, :, self.netG.mean_idx:self.netG.vars_idx, ...])
         else: # used with all other models
-            self.loss_G, self.netG.variance = losses.calc_loss(self.criterion, self.opts, self.fake_B[:, :, :S2_BANDS, ...], self.real_B, var=self.fake_B[:, :, S2_BANDS:, ...])
+            self.loss_G, self.netG.variance = losses.calc_loss(self.criterion, self.config, self.fake_B[:, :, :S2_BANDS, ...], self.real_B, var=self.fake_B[:, :, S2_BANDS:, ...])
 
         self.optimizer_G.zero_grad()
         self.loss_G.backward()
@@ -168,8 +141,8 @@ class ModelCRNet(ModelBase):
         return scores
 
     def save_checkpoint(self, epoch):
-        self.save_network(self.net_G, self.optimizer_G, epoch, self.lr_scheduler, self.opts.save_model_dir)
+        self.save_network(self.net_G, self.optimizer_G, epoch, self.lr_scheduler, self.config.SAVE_MODEL_DIR)
     
     def load_checkpoint(self, epoch):
-        checkpoint = torch.load(os.path.join(self.opts.save_model_dir, '%s_net_CR.pth' % (str(epoch))))
+        checkpoint = torch.load(os.path.join(self.config.EXP_NAME, self.config.SAVE_MODEL_DIR, '%s_net_CR.pth' % (str(epoch))))
         self.net_G.load_state_dict(checkpoint['network'])

@@ -1,4 +1,7 @@
 import os
+import sys
+#print(sys.path)
+sys.path.append("/remote-home/chuguoyou/Code/CR/CR")
 import glob
 import torch
 import warnings
@@ -611,7 +614,9 @@ class SEN12MSCR(Dataset):
             self.cloud_detector = S2PixelCloudDetector(threshold=0.4, all_bands=True, average_over=4, dilation_size=2)
         else: self.cloud_detector = None
 
-        self.paths          = self.get_paths()
+        self.paths          = torch.load(f"data/{split}_{region}_path.pth")
+        #self.paths          = self.get_paths()
+        #torch.save(self.paths, f"{split}_{region}_path.pth")
         self.n_samples      = len(self.paths)
 
         # raise a warning if no data has been found
@@ -656,8 +661,8 @@ class SEN12MSCR(Dataset):
 
         sample = {'input': {'S1': s1,
                             'S2': process_MS(s2_cloudy, self.method),
-                            'masks': mask,
-                            'coverage': np.mean(mask),
+                            #'masks': mask,
+                            #'coverage': np.mean(mask),
                             'S1 path': os.path.join(self.root_dir, self.paths[pdx]['S1']),
                             'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']),
                             'coord': coord,
@@ -704,7 +709,8 @@ class SEN12MSCR(Dataset):
 if __name__ == "__main__":
     ##===================================================##
     ##===================================================##
-    dataset = SEN12MSCR(root='../../Data/CR-sentinel/SEN12MSCR', cloud_masks=None)
+    dataset = SEN12MSCR(root='../../../Data/CR-sentinel/SEN12MSCR', cloud_masks=None, split='val')
+    print(len(dataset))
     dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=1,shuffle=True)
 
     ##===================================================##
