@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 #print(sys.path)
 sys.path.append("/remote-home/chuguoyou/Code/CR/CR")
 import glob
@@ -20,7 +21,7 @@ import rasterio
 from rasterio.merge import merge
 from scipy.ndimage import gaussian_filter
 from torch.utils.data import Dataset
-
+from stocaching import SharedCache
 from util.detect_cloudshadow import get_cloud_mask, get_shadow_mask
 
 
@@ -47,7 +48,7 @@ def process_MS(img, method):
         img = np.clip(img, intensity_min, intensity_max)   # intensity clipping to a global unified MS intensity range
         img /= 2000                                        # project to [0,5], preserve global intensities (across patches)
     img = np.nan_to_num(img)
-    return img
+    return torch.tensor(img)
 
 def process_SAR(img, method):
     if method=='default':
@@ -60,7 +61,7 @@ def process_SAR(img, method):
         img = np.concatenate([(2 * (np.clip(img[0], dB_min[0], dB_max[0]) - dB_min[0]) / (dB_max[0] - dB_min[0]))[None, ...],
                               (2 * (np.clip(img[1], dB_min[1], dB_max[1]) - dB_min[1]) / (dB_max[1] - dB_min[1]))[None, ...]], axis=0)
     img = np.nan_to_num(img)
-    return img
+    return torch.tensor(img)
 
 def get_cloud_cloudshadow_mask(img, cloud_threshold=0.2):
     cloud_mask = get_cloud_mask(img, cloud_threshold, binarize=True)
@@ -347,6 +348,32 @@ class SEN12MSCRTS(Dataset):
         coverage_match = True # note: not checking whether any requested cloud coverage is met in this mode   
         return inputs_idx, cloudless_idx, coverage_match
 
+    def long_range_sampler(self, coverage, clear_tresh = 1e-3, seed=None):
+        # sample a img closest to the chosen clean img as the img to be restored
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
+
+        is_clear = np.argwhere(np.array(coverage)<clear_tresh).flatten()
+        try:cloudless_idx= is_clear[np.random.randint(0, len(is_clear))]
+        except:cloudless_idx=np.array(coverage).argmin()
+        
+        inputs_idx=[]
+        if cloudless idx == 0:
+            closest_idx=1
+        elif cloudless idx == 29:
+            closest_idx= 28
+        else:
+            closest_idx=random.choice([cloudless_idx - 1,cloudless_idx + 1])
+
+        inputs_idx.append(closest_idx)
+        remaining_indices = [i for i in range(30)if i != cloudless_idx and i != closest_idx]
+        inputs_idx += random.sample(remaining_sindices, self.n_input_t-1)
+        coverage_match = True
+        return inputs_idx, cloudless_idx, coverage_match
+
+
+
     def sampler(self, s1, s2, masks, coverage, clear_tresh = 1e-3, earliest_idx=0, latext_idx=30):
         if self.sampling=='random':
             inputs_idx, cloudless_idx, coverage_match = self.random_sampler(coverage, clear_tresh)
@@ -618,11 +645,35 @@ class SEN12MSCR(Dataset):
         #self.paths          = self.get_paths()
         #torch.save(self.paths, f"{split}_{region}_path.pth")
         self.n_samples      = len(self.paths)
-
-        # raise a warning if no data has been found
         if not self.n_samples: self.throw_warn()
 
         self.method         = rescale_method
+
+        if self.split == 'train':
+            cache_size = [64, 64, 64]
+        elif self.split == 'val':
+            cache_size = [4, 16, 16]
+
+        self.s1_cache = SharedCache(
+            size_limit_gib=cache_size[0],
+            dataset_len=self.n_samples,
+            data_dims=(2, 256, 256),
+            dtype=torch.float32,
+        )
+
+        self.s2_cache = SharedCache(
+            size_limit_gib=cache_size[1],
+            dataset_len=self.n_samples,
+            data_dims=(13, 256, 256),
+            dtype=torch.float32,
+        )
+
+        self.s2_cloudy_cache = SharedCache(
+            size_limit_gib=cache_size[2],
+            dataset_len=self.n_samples,
+            data_dims=(13, 256, 256),
+            dtype=torch.float32,
+        )
 
     # indexes all patches contained in the current data split
     def get_paths(self):  # assuming for the same ROI+num, the patch numbers are the same
@@ -648,31 +699,61 @@ class SEN12MSCR(Dataset):
                               "S2_cloudy":  paths_S2_cloudy[pdx]}
                     paths.append(sample)
         return paths
-
+    
     def __getitem__(self, pdx):  # get the triplet of patch with ID pdx
-        s1_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))
-        s2_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))
-        s2_cloudy_tif   = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))
-        coord           = list(s2_tif.bounds)
-        s1              = process_SAR(read_img(s1_tif), self.method)
-        s2              = read_img(s2_tif)           # note: pre-processing happens after cloud detection
-        s2_cloudy       = read_img(s2_cloudy_tif)    # note: pre-processing happens after cloud detection
-        mask            = None if not self.cloud_masks else get_cloud_map(s2_cloudy, self.cloud_masks, self.cloud_detector)
+
+        s1 = self.s1_cache.get_slot(pdx)
+        s2_cloudy = self.s2_cloudy_cache.get_slot(pdx)
+        s2 = self.s2_cache.get_slot(pdx)
+
+        if s1 is None:
+            s1 = process_SAR(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))), self.method)
+            self.s1_cache.set_slot(pdx, s1)
+
+        if s2 is None:
+            s2 = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))), self.method)
+            self.s2_cache.set_slot(pdx, s2)
+
+        if s2_cloudy is None:
+            s2_cloudy = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))), self.method)
+            self.s2_cloudy_cache.set_slot(pdx, s2_cloudy) # try to cache x
 
         sample = {'input': {'S1': s1,
-                            'S2': process_MS(s2_cloudy, self.method),
-                            #'masks': mask,
-                            #'coverage': np.mean(mask),
-                            'S1 path': os.path.join(self.root_dir, self.paths[pdx]['S1']),
-                            'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']),
-                            'coord': coord,
+                            'S2': s2_cloudy,
+                            'S1 path': self.paths[pdx]['S1'],
+                            'S2 path': self.paths[pdx]['S2_cloudy'],
                             },
-                    'target': {'S2': process_MS(s2, self.method),
-                               'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2']),
-                               'coord': coord,
+                    'target': {'S2': s2,
+                            'S2 path': self.paths[pdx]['S2'],
                                 },
                     }
         return sample
+
+
+    # def __getitem__(self, pdx):  # get the triplet of patch with ID pdx
+    #     s1_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))
+    #     s2_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))
+    #     s2_cloudy_tif   = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))
+    #     coord           = list(s2_tif.bounds)
+    #     s1              = process_SAR(read_img(s1_tif), self.method)
+    #     s2              = read_img(s2_tif)           # note: pre-processing happens after cloud detection
+    #     s2_cloudy       = read_img(s2_cloudy_tif)    # note: pre-processing happens after cloud detection
+    #     mask            = None if not self.cloud_masks else get_cloud_map(s2_cloudy, self.cloud_masks, self.cloud_detector)
+
+    #     sample = {'input': {'S1': s1,
+    #                         'S2': process_MS(s2_cloudy, self.method),
+    #                         #'masks': mask,
+    #                         #'coverage': np.mean(mask),
+    #                         'S1 path': os.path.join(self.root_dir, self.paths[pdx]['S1']),
+    #                         'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']),
+    #                         'coord': coord,
+    #                         },
+    #                 'target': {'S2': process_MS(s2, self.method),
+    #                         'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2']),
+    #                         'coord': coord,
+    #                             },
+    #                 }
+    #     return sample
 
     def throw_warn(self):
         warnings.warn("""No data samples found! Please use the following directory structure:
@@ -709,7 +790,7 @@ class SEN12MSCR(Dataset):
 if __name__ == "__main__":
     ##===================================================##
     ##===================================================##
-    dataset = SEN12MSCR(root='../../../Data/CR-sentinel/SEN12MSCR', cloud_masks=None, split='val')
+    dataset = SEN12MSCRTS(root='../../../Data/CR-sentinel/SEN12MSCR-TS/train', cloud_masks=None, split='val')
     print(len(dataset))
     dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=1,shuffle=True)
 

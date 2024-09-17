@@ -26,7 +26,6 @@ G2_COLOR_LOSS_WEIGHT: 10
 G2_MRF_LOSS_WEIGHT: 0.05
 G2_MUTUAL_LOSS_WEIGHT: 5
 
-
 LOG_ITER: 1                   # freq to log batch_loss ;batch
 SAVE_FREQ: 1                  # freq to save model ;epoch
 VAL_FREQ: 1

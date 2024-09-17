@@ -5,12 +5,14 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-from TransCNNHAE.networks import TransCNN
+from TransCNNHAE.networks import MuliTem_TransCNN
 from TransCNNHAE.loss import PerceptualLoss
 from model_base import ModelBase
 from metrics import PSNR, SSIM, SAM, MAE
 
 from torch.optim import lr_scheduler
+
+import losses
 
 S1_BANDS = 2
 S2_BANDS = 13
@@ -20,7 +22,7 @@ class ModelCRNet(ModelBase):
     def __init__(self, config):
         super(ModelCRNet, self).__init__()
         self.config = config
-        self.net_G = TransCNN(config).cuda()
+        self.net_G = MuliTem_TransCNN(config).cuda()
         self.net_G = nn.DataParallel(self.net_G)
         
         self.optimizer_G = torch.optim.Adam(params=self.net_G.parameters(), lr=config.G_LR, betas=(config.BETA1, config.BETA2))

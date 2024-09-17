@@ -19,10 +19,10 @@ import random
 import numpy as np
 from tqdm import tqdm
 
-import resource
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-# see: https://docs.python.org/3/library/resource.html#resource.RLIM_INFINITY
-resource.setrlimit(resource.RLIMIT_NOFILE, (int(1024*1e3), rlimit[1]))
+# import resource
+# rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+# # see: https://docs.python.org/3/library/resource.html#resource.RLIM_INFINITY
+# resource.setrlimit(resource.RLIMIT_NOFILE, (int(1024*1e3), rlimit[1]))
 
 import torch
 dirname = os.path.dirname(os.path.abspath(__file__))
@@ -47,8 +47,8 @@ pathify = lambda path_list: [os.path.join(*path[0].split('/')[-6:]) for path in 
 
 if __name__ == '__main__':
     # main parameters for instantiating SEN12MS-CR-TS
-    root                = '/home/data/SEN12MSCRTS'                              # path to your copy of SEN12MS-CR-TS
-    split               = 'test'                                                # ROI to sample from, belonging to splits [all | train | val | test]
+    root                = '../../../Data/CR-sentinel/SEN12MSCR-TS/train'                              # path to your copy of SEN12MS-CR-TS
+    split               = 'train'                                                # ROI to sample from, belonging to splits [all | train | val | test]
     input_t             = 3                                                     # number of input time points to sample (irrelevant if choosing sample_type='generic')
     region              = 'all'                                                 # choose the region of data input. [all | africa | america | asiaEast | asiaWest | europa]
     sample_type         = 'generic'                                             # type of samples returned [cloudy_cloudfree | generic]

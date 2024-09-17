@@ -1,4 +1,5 @@
 import torch
+import time
 import os
 import numpy as np
 from tqdm import tqdm
@@ -24,8 +25,13 @@ class Generic_Train():
 
 			train_psnr = 0
 
+			time_1 = time.time()
 			for i, batch in enumerate(tqdm(self.train_dataloader)):
 				total_steps+=1
+
+				time_2 = time.time()
+				time_load = time_2 - time_1
+				print(f"time_load: {time_load}s")
 
 				self.model.set_input(batch)
 				batch_loss = self.model.optimize_parameters()
@@ -40,6 +46,10 @@ class Generic_Train():
 					self.writer.add_scalar('batch_loss', avg_log_loss, total_steps)
 
 					log_loss = 0
+				
+				time_1 = time.time()
+				time_process = time_1 - time_2
+				print(f"time_process: {time_process}s")
 
 			self.writer.add_scalar('train_psnr', train_psnr/len(self.train_dataloader), epoch)
 
@@ -72,7 +82,7 @@ class Generic_Train():
 				score += self.model.val_scores()['PSNR']
 				_iter += 1
 
-				if _iter%10 == 0:
+				if _iter%2 == 0:
 					self.model.val_img_save(epoch)
 
 			score = score/_iter

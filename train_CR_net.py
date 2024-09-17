@@ -31,33 +31,35 @@ config = Config(os.path.join('config', f'{opts.config_name}.yml'))
 seed_torch()
 
 dt_train = SEN12MSCR(config.TRAIN_ROOT, split='train')
-dt_test = SEN12MSCR(config.TEST_ROOT, split='test')
+#dt_test = SEN12MSCR(config.TEST_ROOT, split='test')
 dt_val = SEN12MSCR(config.VAL_ROOT, split='val')
 
-dt_train = torch.utils.data.Subset(dt_train, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
-dt_test = torch.utils.data.Subset(dt_test, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
-dt_val = torch.utils.data.Subset(dt_val, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
+# dt_train = torch.utils.data.Subset(dt_train, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
+# dt_test = torch.utils.data.Subset(dt_test, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
+# dt_val = torch.utils.data.Subset(dt_val, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
 
 train_loader = torch.utils.data.DataLoader(
     dt_train,
     batch_size=config.BATCH_SIZE,
     shuffle=True,
     num_workers=config.NUM_WORKERS,
+    pin_memory=True
 )
 val_loader = torch.utils.data.DataLoader(
     dt_val,
     batch_size=config.BATCH_SIZE,
     shuffle=False,
     num_workers=config.NUM_WORKERS,
+    pin_memory=True
 )
-test_loader = torch.utils.data.DataLoader(
-    dt_test,
-    batch_size=config.BATCH_SIZE,
-    shuffle=False,
-    #num_workers=config.NUM_WORKERS,
-)
+# test_loader = torch.utils.data.DataLoader(
+#     dt_test,
+#     batch_size=config.BATCH_SIZE,
+#     shuffle=False,
+#     #num_workers=config.NUM_WORKERS,
+# )
 
-print("Train {}, Val {}, Test {}".format(len(dt_train), len(dt_val), len(dt_test)))
+print("Train {}, Val {}".format(len(dt_train), len(dt_val)))
 
 ##===================================================##
 ##****************** Create model *******************##

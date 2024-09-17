@@ -62,7 +62,63 @@ class TransCNN(nn.Module):
         content = content.permute(1,2,0).view(bs, C, int(math.sqrt(L)), int(math.sqrt(L)))
         output = self.cnn_dec(content)
         return output
+    
+class TransCNN(nn.Module):
+    def __init__(self, config):
+        super(TransCNN, self).__init__()
+        dim = 256
+        self.config = config
+        self.patch_to_embedding = nn.Sequential(
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = 4, p2 = 4),
+            nn.Linear(4*4*15, dim)
+        )
+        self.transformer_enc = transformer.TransformerEncoders(dim, nhead=2, num_encoder_layers=9, dim_feedforward=dim*2, activation='gelu')
+        self.cnn_dec = CNNDecoder(256, 13, 'ln', 'lrelu', 'reflect')
+        
+        self.input_pos = PatchPositionEmbeddingSine(ksize=4, stride=4)
 
+    def forward(self, inputs):
+        self.input_pos = self.input_pos.unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1).cuda()
+        self.input_pos = self.input_pos.flatten(2).permute(2, 0, 1)
+
+        patch_embedding = self.patch_to_embedding(inputs)
+        content = self.transformer_enc(patch_embedding.permute(1, 0, 2), src_pos=self.input_pos)
+        bs, L, C  = patch_embedding.size()
+        content = content.permute(1,2,0).view(bs, C, int(math.sqrt(L)), int(math.sqrt(L)))
+        output = self.cnn_dec(content)
+        return output
+
+class MuliTem_TransCNN(nn.Module):
+    def __init__(self, config):
+        super(MuliTem_TransCNN, self).__init__()
+        dim = 256
+        self.config = config
+        self.patch_to_embedding = nn.Sequential(
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = 4, p2 = 4),
+            nn.Linear(4*4*15, dim)
+        )
+        self.transformer_enc = transformer.TransformerEncoders(dim, nhead=2, num_encoder_layers=9, dim_feedforward=dim*2, activation='gelu')
+        self.cnn_dec = CNNDecoder(256, 13, 'ln', 'lrelu', 'reflect')
+        self.conv_tmerge = nn.Conv1d(256*3, 256, 1, 1)
+        
+        self.input_pos = PatchPositionEmbeddingSine(ksize=4, stride=4)
+
+    def forward(self, inputs):
+
+        b, t, c, h, w = inputs.shape
+        inputs.view(-1, c, h, w)
+
+        self.input_pos = self.input_pos.unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1).cuda()
+        self.input_pos = self.input_pos.flatten(2).permute(2, 0, 1)
+
+        patch_embedding = self.patch_to_embedding(inputs)
+        content = self.transformer_enc(patch_embedding.permute(1, 0, 2), src_pos=self.input_pos)
+        bs, L, C  = patch_embedding.size()
+        content = content.permute(1,2,0).view(b, t*C, int(math.sqrt(L)), int(math.sqrt(L)))
+
+        content = self.conv_tmerge(content)
+        output = self.cnn_dec(content)
+        return output
 
 class CNNDecoder(nn.Module):
     def __init__(self, input_dim, output_dim, norm, activ, pad_type):
