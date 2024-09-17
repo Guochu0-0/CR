@@ -239,7 +239,8 @@ class SEN12MSCRTS(Dataset):
         if isinstance (self.custom_samples, list):
             self.paths            = self.custom_samples
             self.import_data_path = None
-        else: self.paths            = self.get_paths()
+        else: self.paths            = torch.load(f"data/precomputed/sen12mscrts/paths/{split}_{region}_path.pth")
+        #torch.save(self.paths, f"data/precomputed/sen12mscrts/paths/{split}_{region}_path.pth")
         self.n_samples        = len(self.paths)
         # raise a warning that no data has been found
         if not self.n_samples: self.throw_warn()
@@ -359,16 +360,16 @@ class SEN12MSCRTS(Dataset):
         except:cloudless_idx=np.array(coverage).argmin()
         
         inputs_idx=[]
-        if cloudless idx == 0:
+        if cloudless_idx == 0:
             closest_idx=1
-        elif cloudless idx == 29:
+        elif cloudless_idx == 29:
             closest_idx= 28
         else:
             closest_idx=random.choice([cloudless_idx - 1,cloudless_idx + 1])
 
         inputs_idx.append(closest_idx)
         remaining_indices = [i for i in range(30)if i != cloudless_idx and i != closest_idx]
-        inputs_idx += random.sample(remaining_sindices, self.n_input_t-1)
+        inputs_idx += random.sample(remaining_indices, self.n_input_t-1)
         coverage_match = True
         return inputs_idx, cloudless_idx, coverage_match
 
@@ -641,7 +642,7 @@ class SEN12MSCR(Dataset):
             self.cloud_detector = S2PixelCloudDetector(threshold=0.4, all_bands=True, average_over=4, dilation_size=2)
         else: self.cloud_detector = None
 
-        self.paths          = torch.load(f"data/{split}_{region}_path.pth")
+        self.paths          = torch.load(f"data/precomputed/sen12mscr/paths/{split}_{region}_path.pth")
         #self.paths          = self.get_paths()
         #torch.save(self.paths, f"{split}_{region}_path.pth")
         self.n_samples      = len(self.paths)
@@ -649,31 +650,31 @@ class SEN12MSCR(Dataset):
 
         self.method         = rescale_method
 
-        if self.split == 'train':
-            cache_size = [64, 64, 64]
-        elif self.split == 'val':
-            cache_size = [4, 16, 16]
+        # if self.split == 'train':
+        #     cache_size = [64, 64, 64]
+        # elif self.split == 'val':
+        #     cache_size = [4, 16, 16]
 
-        self.s1_cache = SharedCache(
-            size_limit_gib=cache_size[0],
-            dataset_len=self.n_samples,
-            data_dims=(2, 256, 256),
-            dtype=torch.float32,
-        )
+        # self.s1_cache = SharedCache(
+        #     size_limit_gib=cache_size[0],
+        #     dataset_len=self.n_samples,
+        #     data_dims=(2, 256, 256),
+        #     dtype=torch.float32,
+        # )
 
-        self.s2_cache = SharedCache(
-            size_limit_gib=cache_size[1],
-            dataset_len=self.n_samples,
-            data_dims=(13, 256, 256),
-            dtype=torch.float32,
-        )
+        # self.s2_cache = SharedCache(
+        #     size_limit_gib=cache_size[1],
+        #     dataset_len=self.n_samples,
+        #     data_dims=(13, 256, 256),
+        #     dtype=torch.float32,
+        # )
 
-        self.s2_cloudy_cache = SharedCache(
-            size_limit_gib=cache_size[2],
-            dataset_len=self.n_samples,
-            data_dims=(13, 256, 256),
-            dtype=torch.float32,
-        )
+        # self.s2_cloudy_cache = SharedCache(
+        #     size_limit_gib=cache_size[2],
+        #     dataset_len=self.n_samples,
+        #     data_dims=(13, 256, 256),
+        #     dtype=torch.float32,
+        # )
 
     # indexes all patches contained in the current data split
     def get_paths(self):  # assuming for the same ROI+num, the patch numbers are the same
@@ -700,60 +701,59 @@ class SEN12MSCR(Dataset):
                     paths.append(sample)
         return paths
     
-    def __getitem__(self, pdx):  # get the triplet of patch with ID pdx
-
-        s1 = self.s1_cache.get_slot(pdx)
-        s2_cloudy = self.s2_cloudy_cache.get_slot(pdx)
-        s2 = self.s2_cache.get_slot(pdx)
-
-        if s1 is None:
-            s1 = process_SAR(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))), self.method)
-            self.s1_cache.set_slot(pdx, s1)
-
-        if s2 is None:
-            s2 = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))), self.method)
-            self.s2_cache.set_slot(pdx, s2)
-
-        if s2_cloudy is None:
-            s2_cloudy = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))), self.method)
-            self.s2_cloudy_cache.set_slot(pdx, s2_cloudy) # try to cache x
-
-        sample = {'input': {'S1': s1,
-                            'S2': s2_cloudy,
-                            'S1 path': self.paths[pdx]['S1'],
-                            'S2 path': self.paths[pdx]['S2_cloudy'],
-                            },
-                    'target': {'S2': s2,
-                            'S2 path': self.paths[pdx]['S2'],
-                                },
-                    }
-        return sample
-
-
     # def __getitem__(self, pdx):  # get the triplet of patch with ID pdx
-    #     s1_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))
-    #     s2_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))
-    #     s2_cloudy_tif   = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))
-    #     coord           = list(s2_tif.bounds)
-    #     s1              = process_SAR(read_img(s1_tif), self.method)
-    #     s2              = read_img(s2_tif)           # note: pre-processing happens after cloud detection
-    #     s2_cloudy       = read_img(s2_cloudy_tif)    # note: pre-processing happens after cloud detection
-    #     mask            = None if not self.cloud_masks else get_cloud_map(s2_cloudy, self.cloud_masks, self.cloud_detector)
+
+    #     s1 = self.s1_cache.get_slot(pdx)
+    #     s2_cloudy = self.s2_cloudy_cache.get_slot(pdx)
+    #     s2 = self.s2_cache.get_slot(pdx)
+
+    #     if s1 is None:
+    #         s1 = process_SAR(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))), self.method)
+    #         self.s1_cache.set_slot(pdx, s1)
+
+    #     if s2 is None:
+    #         s2 = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))), self.method)
+    #         self.s2_cache.set_slot(pdx, s2)
+
+    #     if s2_cloudy is None:
+    #         s2_cloudy = process_MS(read_img(read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))), self.method)
+    #         self.s2_cloudy_cache.set_slot(pdx, s2_cloudy) # try to cache x
 
     #     sample = {'input': {'S1': s1,
-    #                         'S2': process_MS(s2_cloudy, self.method),
-    #                         #'masks': mask,
-    #                         #'coverage': np.mean(mask),
-    #                         'S1 path': os.path.join(self.root_dir, self.paths[pdx]['S1']),
-    #                         'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']),
-    #                         'coord': coord,
+    #                         'S2': s2_cloudy,
+    #                         'S1 path': self.paths[pdx]['S1'],
+    #                         'S2 path': self.paths[pdx]['S2_cloudy'],
     #                         },
-    #                 'target': {'S2': process_MS(s2, self.method),
-    #                         'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2']),
-    #                         'coord': coord,
+    #                 'target': {'S2': s2,
+    #                         'S2 path': self.paths[pdx]['S2'],
     #                             },
     #                 }
     #     return sample
+
+    def __getitem__(self, pdx):  # get the triplet of patch with ID pdx
+        s1_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S1']))
+        s2_tif          = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2']))
+        s2_cloudy_tif   = read_tif(os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']))
+        coord           = list(s2_tif.bounds)
+        s1              = process_SAR(read_img(s1_tif), self.method)
+        s2              = read_img(s2_tif)           # note: pre-processing happens after cloud detection
+        s2_cloudy       = read_img(s2_cloudy_tif)    # note: pre-processing happens after cloud detection
+        mask            = None if not self.cloud_masks else get_cloud_map(s2_cloudy, self.cloud_masks, self.cloud_detector)
+
+        sample = {'input': {'S1': s1,
+                            'S2': process_MS(s2_cloudy, self.method),
+                            #'masks': mask,
+                            #'coverage': np.mean(mask),
+                            'S1 path': os.path.join(self.root_dir, self.paths[pdx]['S1']),
+                            'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2_cloudy']),
+                            'coord': coord,
+                            },
+                    'target': {'S2': process_MS(s2, self.method),
+                            'S2 path': os.path.join(self.root_dir, self.paths[pdx]['S2']),
+                            'coord': coord,
+                                },
+                    }
+        return sample
 
     def throw_warn(self):
         warnings.warn("""No data samples found! Please use the following directory structure:
@@ -790,7 +790,9 @@ class SEN12MSCR(Dataset):
 if __name__ == "__main__":
     ##===================================================##
     ##===================================================##
-    dataset = SEN12MSCRTS(root='../../../Data/CR-sentinel/SEN12MSCR-TS/train', cloud_masks=None, split='val')
+    dataset = SEN12MSCRTS(root='../../../Data/CR-sentinel/SEN12MSCR-TS/train',  
+                          split='train', 
+                          import_data_path='data/precomputed/sen12mscrts/splits/generic_3_train_all_s2cloudless_mask.npy')
     print(len(dataset))
     dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=1,shuffle=True)
 

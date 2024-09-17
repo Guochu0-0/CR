@@ -13,16 +13,16 @@ S2_BANDS = 13
 
 
 def get_loss(config):
-    if config.loss == "GNLL":
+    if config.LOSS == "GNLL":
         criterion1 = GaussianNLLLoss(reduction='mean', eps=1e-8, full=True)
         criterion = lambda pred, targ, var: criterion1(pred, targ, var)
-    elif config.loss == "MGNLL":
+    elif config.LOSS == "MGNLL":
         criterion1 = MultiGaussianNLLLoss(reduction='mean', eps=1e-8, full=True, mode=config.covmode, chunk=config.chunk_size)
         criterion = lambda pred, targ, var: criterion1(pred, targ, var)
-    elif config.loss=="l1":
+    elif config.LOSS=="l1":
         criterion1 = nn.L1Loss()
         criterion = lambda pred, targ: criterion1(pred, targ)
-    elif config.loss=="l2":
+    elif config.LOSS=="l2":
         criterion1 = nn.MSELoss()
         criterion = lambda pred, targ: criterion1(pred, targ)
     else: raise NotImplementedError
@@ -35,9 +35,9 @@ def get_loss(config):
 
 def calc_loss(criterion, config, out, y, var=None):
     
-    if config.loss in ['GNLL']:
+    if config.LOSS in ['GNLL']:
         loss, variance = criterion(out, y, var)
-    elif config.loss in ['MGNLL']:
+    elif config.LOSS in ['MGNLL']:
         loss, variance = criterion(out, y, var)
     else: 
         loss, variance = criterion(out, y), None

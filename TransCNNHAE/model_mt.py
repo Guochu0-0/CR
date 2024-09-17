@@ -12,7 +12,7 @@ from metrics import PSNR, SSIM, SAM, MAE
 
 from torch.optim import lr_scheduler
 
-import losses
+import UnCRtainTS.losses as losses
 
 S1_BANDS = 2
 S2_BANDS = 13

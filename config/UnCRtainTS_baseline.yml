@@ -1,0 +1,32 @@
+EXP_NAME: UnCRtainTS_baseline
+GPU: [0, 1]
+NUM_WORKERS: 8
+SUB_NUM: 100
+
+DATASET: sen12mscrts
+
+TRAIN_ROOT: ../../../Data/CR-sentinel/SEN12MSCR-TS/train
+VAL_ROOT: ../../../Data/CR-sentinel/SEN12MSCR-TS/train
+TEST_ROOT: ../../../Data/CR-sentinel/SEN12MSCR-TS/test
+
+TRAIN_IMPORT_PATH: data/precomputed/sen12mscrts/splits/generic_3_train_all_s2cloudless_mask.npy
+VAL_IMPORT_PATH: data/precomputed/sen12mscrts/splits/generic_3_val_all_s2cloudless_mask.npy
+TEST_IMPORT_PATH: data/precomputed/sen12mscrts/splits/generic_3_test_all_s2cloudless_mask.npy
+
+BATCH_SIZE: 4                 # batch size
+EPOCH: 20                     # epoch nums for training
+LR: 0.001
+GAMMA: 0.8
+
+INPUT_T: 3
+USE_SAR: True
+INPUT_DIM: 15
+SCALE_BY: 10
+MEAN_NONLINEARITY: True
+VAR_NONLINEARITY: softplus
+LOSS: MGNLL
+
+LOG_ITER: 1                   # freq to log batch_loss ;batch
+SAVE_FREQ: 1                  # freq to save model ;epoch
+VAL_FREQ: 1
+SAVE_MODEL_DIR: checkpoints

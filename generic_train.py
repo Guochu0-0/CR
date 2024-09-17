@@ -63,7 +63,8 @@ class Generic_Train():
 					best_score = score
 					self.model.save_checkpoint('best')
 			
-			#self.model.scheduler_G.step()
+			if self.model.scheduler_G:
+				self.model.scheduler_G.step()
 			
 			if epoch % self.config.SAVE_FREQ == 0:
 				self.model.save_checkpoint(epoch)
