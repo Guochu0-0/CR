@@ -21,9 +21,16 @@ class ModelCRNet(ModelBase):
     def __init__(self, config):
         super(ModelCRNet, self).__init__()
         self.config = config
-        self.scaly_by = config.SCALE_BY
+        self.scale_by = config.SCALE_BY
+
+        if self.config.LOSS == 'MGNLL':
+            out_dim = S2_BANDS*2
+        else:
+            out_dim = S2_BANDS
+
         self.net_G = UNCRTAINTS(input_dim=config.INPUT_DIM,
                                 scale_by=config.SCALE_BY,
+                                out_conv=[out_dim],
                                 out_nonlin_mean=config.MEAN_NONLINEARITY,
                                 out_nonlin_var=config.VAR_NONLINEARITY).cuda()
         self.net_G = nn.DataParallel(self.net_G)
@@ -38,19 +45,21 @@ class ModelCRNet(ModelBase):
                         
     def set_input(self, input):
         self.cloudy_data = self.scale_by * torch.stack(input['input']['S2'], dim=1).cuda()
-        self.cloudfree_data = self.scale_by * input['target']['S2'].cuda()
+        self.cloudfree_data = self.scale_by * torch.stack(input['target']['S2'], dim=1).cuda()
 
         self.cloudy_name = os.path.splitext(os.path.basename(input['input']['S2 path'][0][0]))[0]
         in_S2_td    = input['input']['S2 TD']
+        if self.config.BATCH_SIZE>1: in_S2_td = torch.stack((in_S2_td)).T
 
         if self.config.USE_SAR:
             in_S1_td    = input['input']['S1 TD']
+            if self.config.BATCH_SIZE>1: in_S1_td = torch.stack((in_S1_td)).T
             self.sar_data = self.scale_by * torch.stack(input['input']['S1'], dim=1).cuda()
-            self.input_data = torch.stack([self.sar_data, self.cloudy_data], dim=2)
-            self.dates = torch.stack((torch.tensor(in_S1_td),torch.tensor(in_S2_td))).float().mean(dim=0).cuda()
+            self.input_data = torch.cat([self.sar_data, self.cloudy_data], dim=2)
+            self.dates = torch.stack((in_S1_td,in_S2_td)).float().mean(dim=0).cuda()
         else:
             self.input_data = self.cloudy_data
-            self.dates = torch.tensor(in_S2_td).float().cuda()
+            self.dates = in_S2_td.float().cuda()
 
     def reset_input(self):
         self.cloudy_data = None
@@ -70,14 +79,10 @@ class ModelCRNet(ModelBase):
         if hasattr(self, 'cloudy_data'): self.cloudy_data = 1/self.scale_by * self.cloudy_data
         self.cloudfree_data = 1/self.scale_by * self.cloudfree_data 
         self.pred_cloudfree_data = 1/self.scale_by * self.pred_cloudfree_data[:,:,:S2_BANDS,...]
-        
-        # rescale (co)variances
-        if hasattr(self.net_G, 'variance') and self.net_G.variance is not None:
-            self.net_G.variance = 1/self.scale_by**2 * self.net_G.variance
 
 
     def forward(self):
-        pred_cloudfree_data = self.net_G(self.cloudy_data, batch_positions=self.dates)
+        pred_cloudfree_data = self.net_G(self.input_data, batch_positions=self.dates)
         return pred_cloudfree_data
 
     def optimize_parameters(self):              
@@ -85,7 +90,7 @@ class ModelCRNet(ModelBase):
 
         self.optimizer_G.zero_grad()
   
-        loss_G, self.net_G.variance = losses.calc_loss(self.loss, self.config, self.pred_cloudfree_data[:, :, :self.net_G.mean_idx, ...], self.cloudfree_data, var=self.pred_cloudfree_data[:, :, self.net_G.mean_idx:self.net_G.vars_idx, ...])
+        loss_G, _ = losses.calc_loss(self.loss, self.config, self.pred_cloudfree_data[:, :, :S2_BANDS, ...], self.cloudfree_data, var=self.pred_cloudfree_data[:, :, S2_BANDS:, ...])
 
         loss_G.backward()
         self.optimizer_G.step()
@@ -93,7 +98,7 @@ class ModelCRNet(ModelBase):
         # re-scale inputs, predicted means, predicted variances, etc
         self.rescale()
         # resetting inputs after optimization saves memory
-        self.reset_input()
+        #self.reset_input()
 
         return loss_G.item()
 
@@ -109,12 +114,18 @@ class ModelCRNet(ModelBase):
     
     def val_img_save(self, epoch):
         
-        cloudy = self.cloudy_data[0, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
-        gt = self.cloudfree_data[0, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
-        pred = self.pred_cloudfree_data[0, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
-        sar = self.sar_data[0, [0]].repeat(3, 1, 1).permute(1, 2, 0).detach().cpu().numpy()
+        imgs_cloudy = []
+        for i in range(self.config.INPUT_T):
+            cloudy_i = self.cloudy_data[0, i, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
+            imgs_cloudy.append(cloudy_i)
 
-        merged = np.concatenate([cloudy, sar, pred, gt], axis=1)
+        gt = self.cloudfree_data[0, 0, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
+        pred = self.pred_cloudfree_data[0, 0, [3, 2, 1], ...].permute(1, 2, 0).detach().cpu().numpy()
+        sar = self.sar_data[0, 0, [0]].repeat(3, 1, 1).permute(1, 2, 0).detach().cpu().numpy()
+
+        merged1 = np.concatenate(imgs_cloudy, axis=1)
+        merged2 = np.concatenate([sar, pred, gt], axis=1)
+        merged = np.concatenate([merged1, merged2], axis=0)
 
         save_dir = os.path.join('img_gen', self.config.EXP_NAME, f'epoch_{epoch}')
         if not os.path.exists(save_dir):

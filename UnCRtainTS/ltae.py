@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from positional_encoding import PositionalEncoder
+from UnCRtainTS.positional_encoding import PositionalEncoder
 
 
 class LTAE2d(nn.Module):

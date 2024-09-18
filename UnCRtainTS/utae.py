@@ -7,8 +7,8 @@ License: MIT
 import torch
 import torch.nn as nn
 
-from convlstm import ConvLSTM, BConvLSTM
-from ltae import LTAE2d, LTAE2dtiny
+from UnCRtainTS.convlstm import ConvLSTM, BConvLSTM
+from UnCRtainTS.ltae import LTAE2d, LTAE2dtiny
 
 # function to normalize gradient magnitudes, 
 #   evoke via e.g. scale_gradients(out) at every forward pass

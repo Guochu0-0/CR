@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 import time
 #print(sys.path)
 sys.path.append("/remote-home/chuguoyou/Code/CR/CR")
@@ -204,7 +205,7 @@ class SEN12MSCRTS(Dataset):
         self.modalities     = ["S1", "S2"]
         self.time_points    = range(30)
         self.cloud_masks    = cloud_masks  # e.g. 'cloud_cloudshadow_mask', 's2cloudless_map', 's2cloudless_mask'
-        self.sample_type    = sample_type if self.cloud_masks is not None else 'generic' # pick 'generic' or 'cloudy_cloudfree'
+        self.sample_type    = sample_type #if self.cloud_masks is not None else 'generic' # pick 'generic' or 'cloudy_cloudfree'
         self.sampling       = sampler # type of sampler
         self.vary_samples   = self.sampling =='random' if self.sample_type=='cloudy_cloudfree' else False # whether to draw different samples across epochs
         self.n_input_t      = n_input_samples  # specifies the number of samples, if only part of the time series is used as an input
@@ -349,29 +350,38 @@ class SEN12MSCRTS(Dataset):
         coverage_match = True # note: not checking whether any requested cloud coverage is met in this mode   
         return inputs_idx, cloudless_idx, coverage_match
 
-    def long_range_sampler(self, coverage, clear_tresh = 1e-3, seed=None):
-        # sample a img closest to the chosen clean img as the img to be restored
+    def filtered_long_range_sampler(self, coverage, clear_tresh = 1e-3, seed=None):
+        def find_nearest(array, value):
+            idx = np.searchsorted(array,value)
+            if idx == 0:
+                return array[0]
+            if idx == len(array):
+                return array[-1]
+            if abs(array[idx-1] - value) < abs(array[idx] - value):
+                return array[idx-1]
+            else:
+                return array[idx]
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)
 
         is_clear = np.argwhere(np.array(coverage)<clear_tresh).flatten()
-        try:cloudless_idx= is_clear[np.random.randint(0, len(is_clear))]
+        try: cloudless_idx=is_clear[np.random.randint(0, len(is_clear))]
         except:cloudless_idx=np.array(coverage).argmin()
-        
-        inputs_idx=[]
-        if cloudless_idx == 0:
-            closest_idx=1
-        elif cloudless_idx == 29:
-            closest_idx= 28
-        else:
-            closest_idx=random.choice([cloudless_idx - 1,cloudless_idx + 1])
 
+        specific_idx= [pdx for pdx, perc in enumerate(coverage) if perc >= self.min_cov and perc <= self.max_cov]
+        closest_idx= find_nearest(specific_idx, cloudless_idx)
+        if abs(closest_idx-cloudless_idx)<= 3:
+            sample_match = True
+        else:
+            sample_match= False
+
+        inputs_idx = []
         inputs_idx.append(closest_idx)
-        remaining_indices = [i for i in range(30)if i != cloudless_idx and i != closest_idx]
+        remaining_indices = [i for i in range(30) if i != cloudless_idx and i != closest_idx]
         inputs_idx += random.sample(remaining_indices, self.n_input_t-1)
-        coverage_match = True
-        return inputs_idx, cloudless_idx, coverage_match
+
+        return inputs_idx, cloudless_idx, sample_match
 
 
 
@@ -472,8 +482,10 @@ class SEN12MSCRTS(Dataset):
                         inputs_idx, cloudless_idx, coverage_match = self.random_sampler(coverage)
                     elif self.sampling=='fixedsubset':
                         inputs_idx, cloudless_idx, coverage_match = self.fixedsubset_sampler(coverage, earliest_idx=0, latext_idx=30)
-                    else: # default to fixed sampler
+                    elif self.sampling=='fixed':
                         inputs_idx, cloudless_idx, coverage_match = self.fixed_sampler(coverage)
+                    else: # default to long range sampler
+                        inputs_idx, cloudless_idx, coverage_match = self.filtered_long_range_sampler(coverage)
                     
                     #if self.vary_samples: inputs_idx, cloudless_idx, coverage_match = self.random_sampler(coverage)
                     #else: inputs_idx, cloudless_idx, coverage_match = self.fixed_sampler(coverage)
@@ -481,11 +493,11 @@ class SEN12MSCRTS(Dataset):
                 in_s1_tif, in_s2_tif, in_coord, in_s1, in_s2, in_masks, in_coverage, in_s1_dates, in_s2_dates, in_s1_td, in_s2_td = self.get_imgs(pdx, inputs_idx)
                 tg_s1_tif, tg_s2_tif, tg_coord, tg_s1, tg_s2, tg_masks, tg_coverage, tg_s1_dates, tg_s2_dates, tg_s1_td, tg_s2_td = self.get_imgs(pdx, [cloudless_idx])
 
-                target_s1, target_s2, target_mask = np.array(tg_s1)[0], np.array(tg_s2)[0], np.array(tg_masks)[0]
-                input_s1, input_s2, input_masks   = np.array(in_s1), np.array(in_s2), np.array(in_masks)
+                target_s1, target_s2 = np.array(tg_s1)[0], np.array(tg_s2)[0]
+                input_s1, input_s2   = np.array(in_s1), np.array(in_s2)
 
-                data_samples = {"input":  [input_s1, input_s2, input_masks, inputs_idx], 
-                                "target": [target_s1, target_s2, target_mask, cloudless_idx],
+                data_samples = {"input":  [input_s1, input_s2, inputs_idx], 
+                                "target": [target_s1, target_s2, cloudless_idx],
                                 "match":  coverage_match}
             else:
                 # c) infer date indices online:
@@ -495,9 +507,9 @@ class SEN12MSCRTS(Dataset):
                 data_samples =self.sampler(s1, s2, masks, coverage, clear_tresh = 1e-3)
 
             if not self.custom_samples:
-                input_s1, input_s2, input_masks, inputs_idx         = data_samples['input']
-                target_s1, target_s2, target_mask, cloudless_idx    = data_samples['target']
-                coverage_match                                      = data_samples['match']
+                input_s1, input_s2, inputs_idx         = data_samples['input']
+                target_s1, target_s2, cloudless_idx    = data_samples['target']
+                coverage_match                         = data_samples['match']
                 
                 # preprocess S2 data (after cloud masks have been computed)
                 input_s2    = [process_MS(img, self.method) for img in input_s2]
@@ -510,8 +522,8 @@ class SEN12MSCRTS(Dataset):
 
             sample = {'input': {'S1': list(input_s1),
                                 'S2': input_s2,
-                                'masks': list(input_masks),
-                                'coverage': [np.mean(mask) for mask in input_masks],
+                                #'masks': list(input_masks),
+                                #'coverage': [np.mean(mask) for mask in input_masks],
                                 'S1 TD': in_s1_td, #[s1_td[idx] for idx in inputs_idx],
                                 'S2 TD': in_s2_td, #[s2_td[idx] for idx in inputs_idx],
                                 'S1 path': [] if self.custom_samples else [os.path.join(self.root_dir, self.paths[pdx]['S1'][idx]) for idx in inputs_idx],
@@ -521,8 +533,8 @@ class SEN12MSCRTS(Dataset):
                                 },
                     'target': {'S1': [target_s1],
                                 'S2': target_s2,
-                                'masks': [target_mask],
-                                'coverage': [np.mean(target_mask)],
+                                #'masks': [target_mask],
+                                #'coverage': [np.mean(target_mask)],
                                 'S1 TD': tg_s1_td, #[s1_td[cloudless_idx]],
                                 'S2 TD': tg_s2_td, #[s2_td[cloudless_idx]],
                                 'S1 path': [] if self.custom_samples else [os.path.join(self.root_dir, self.paths[pdx]['S1'][cloudless_idx])],

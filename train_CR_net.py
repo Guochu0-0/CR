@@ -16,7 +16,7 @@ from model_base import print_options, seed_torch
 ##===================================================##
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--config_name', type=str, default='TransCNNHAE_test', help='the name of config files')
+parser.add_argument('--config_name', type=str, default='UnCRtainTS_baseline', help='the name of config files')
 opts = parser.parse_args()
 config = Config(os.path.join('config', f'{opts.config_name}.yml'))
 
@@ -36,16 +36,20 @@ if config.DATASET == 'sen12mscr':
 elif config.DATASET == 'sen12mscrts':
     dt_train = SEN12MSCRTS(config.TRAIN_ROOT, 
                            split='train', 
+                           min_cov=config.MIN_COV,
+                           max_cov=config.MAX_COV,
                            n_input_samples=config.INPUT_T,
                            sampler=config.SAMPLE_TYPE, 
                            import_data_path=config.TRAIN_IMPORT_PATH)
     dt_val = SEN12MSCRTS(config.VAL_ROOT, 
                          split='val', 
+                         min_cov=config.MIN_COV,
+                         max_cov=config.MAX_COV,
                          n_input_samples=config.INPUT_T,
                          sampler=config.SAMPLE_TYPE, 
                          import_data_path=config.VAL_IMPORT_PATH)
 
-if config.SUBNUM:
+if config.SUB_NUM:
     dt_train = torch.utils.data.Subset(dt_train, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
     dt_val = torch.utils.data.Subset(dt_val, np.random.choice(len(dt_train), config.SUB_NUM, replace=False))
 

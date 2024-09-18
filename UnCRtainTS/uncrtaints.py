@@ -9,8 +9,8 @@ import argparse
 import torch
 import torch.nn as nn
 
-from utae import ConvLayer, ConvBlock, TemporallySharedBlock
-from ltae import LTAE2d, LTAE2dtiny
+from UnCRtainTS.utae import ConvLayer, ConvBlock, TemporallySharedBlock
+from UnCRtainTS.ltae import LTAE2d, LTAE2dtiny
 
 S2_BANDS = 13
 

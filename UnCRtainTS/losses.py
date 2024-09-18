@@ -17,7 +17,7 @@ def get_loss(config):
         criterion1 = GaussianNLLLoss(reduction='mean', eps=1e-8, full=True)
         criterion = lambda pred, targ, var: criterion1(pred, targ, var)
     elif config.LOSS == "MGNLL":
-        criterion1 = MultiGaussianNLLLoss(reduction='mean', eps=1e-8, full=True, mode=config.covmode, chunk=config.chunk_size)
+        criterion1 = MultiGaussianNLLLoss(reduction='mean', eps=1e-8, full=True, chunk=None)
         criterion = lambda pred, targ, var: criterion1(pred, targ, var)
     elif config.LOSS=="l1":
         criterion1 = nn.L1Loss()
